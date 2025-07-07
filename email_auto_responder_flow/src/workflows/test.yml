@@ -1,0 +1,26 @@
+name: Test Email Responder
+on: [push, pull_request]  # 触发条件
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4  # 拉取代码
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"  # 需和项目一致
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest  # 如果要用测试框架
+
+      - name: Run tests
+        env:
+          OPENAI_API_KEY: ${{ secrets.TEST_API_KEY }}  # 安全使用密钥
+        run: |
+          python -m pytest tests/  # 运行测试
+          # 或直接运行主脚本（如无测试）:
+          # python email_responder.py --dry-run
