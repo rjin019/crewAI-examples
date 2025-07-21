@@ -53,6 +53,14 @@ class EmailFilterCrew:
                 CreateDraftTool.create_draft,
             ],
         )
+    @agent
+    def email_followup_agent(self) -> Agent:
+        gmail = GmailGetThread()
+        return Agent(
+        config=self.agents_config["email_followup_agent"],
+        llm=self.llm,
+        verbose=True,
+    )
 
     @task
     def filter_emails_task(self) -> Task:

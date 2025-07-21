@@ -1,26 +1,100 @@
-send_followup_email:
+
+filter_emails:
   description: >
-    Compose personalized follow-up emails for candidates who applied to a specific job.
+    "You are given a list of emails:\n{emails}\n\n"
+    "For each email, classify it into one of the following categories:\n"
+    "- purchases, reservations, primary, meeting, support_request, spam, news\n"
+    Classification rules in order:
+    - "spam" include:
+      * Any wellness/health advice without .edu/.gov domain
+      * "plan/program/solution" in subject
+      * Giveaway/limited-time offers
+      * advertisements
 
-    You will use the candidate's name, bio, and whether the company wants to proceed with them to generate the email. 
-    If the candidate is proceeding, ask them for their availability for a Zoom call in the upcoming days. 
-    If not, send a polite rejection email.
+    - purchases: emails related to actual completed purchases, order receipts, invoices, shipping confirmations, or payment reminders. Usually with keywords like "discount", "save", "win", "reward", 
+        "deal", "offer", "limited time", "giveaway"
 
-    CANDIDATE DETAILS
-    -----------------
-    Candidate ID: {candidate_id}
-    Name: {name}
-    Bio:
-    {bio}
+    - reservations: emails related to confirmed bookings such as hotels, flights, events, etc. Has the "Reservation" as part of the subject.
 
-    PROCEEDING WITH CANDIDATE: {proceed_with_candidate}
+    - meeting: meeting invitations or confirmations
 
-    ADDITIONAL INSTRUCTIONS
-    -----------------------
-    - If we are proceeding, ask for their availability for a Zoom call within the next few days.
-    - If we are not proceeding, send a polite rejection email, acknowledging their effort in applying and appreciating their time.
+    - support_request: emails requesting help or assistance
+
+    - news: any newsletters or news
+
+    - "primary" ONLY for:
+      * Verified personal/organizational contacts
+      * No commercial intent
+
+
+    Also decide the following flags for each email:
+    - show_to_user: true/false
+    - needs_auto_reply: true/false
+
+    Rules:
+    - purchases, reservations → show_to_user=true, needs_auto_reply=false
+    - primary, meeting → show_to_user=true, needs_auto_reply=true
+    - news → show_to_user=true, needs_auto_reply=false
+    - support_request → show_to_user=false, needs_auto_reply=true
+    - spam → show_to_user=false, needs_auto_reply=false
+
+    For each email, output:
+    - id subject category show_to_user needs_auto_reply sender
+    Only use the email's sender, subject, and snippet. Output must follow the exact format for each email.
 
   expected_output: >
-    A personalized email based on the candidate's information. It should be professional and respectful, 
-    either inviting them for a Zoom call or letting them know we are pursuing other candidates.
-  agent: email_followup_agent
+    A list of email summaries with their classification and handling flags
+  agent: email_filter_agent
+
+action_required_emails:
+  description: >
+    For each filtered email, determine what type of response or action is required based on "Needs Auto Reply: false" ftom filter_emails.
+    Needs Auto Reply: false, no action needed.
+    Needs Auto Reply: true, reply needed.
+
+    Each input email includes:
+    - id
+    - subject
+    - sender
+    - Needs Auto Reply
+  expected_output: >
+    A list of emails with their corresponding required actions.
+  agent: email_action_agent
+
+draft_responses:
+  description: >
+    No action needed emails, skip and ignore those.
+    Generate a response if the subject is empty or if the action is "reply needed".
+
+    Each input email includes:
+    - id
+    - subject
+    - to: sender's email address. Eg. if sender is "The New York Times <nytdirect@nytimes.com>", then 'to' is nytdirect@nytimes.com
+    - sender: Eg. if sender is "The New York Times <nytdirect@nytimes.com>", then 'sender' is The New York Times
+
+    First, categorize what type of responses is needed.
+    1. primary: General inquiry or information-sharing emails that don't fit other categories.
+    2. meeting:Scheduling or time availability requests.
+    3. support_request: Emails describing a problem, bug, or ask for help.
+
+    Second, generate the corresponding response for each type. Ensure your tone is professional and concise.
+    - Primary: If is the general information that doesn't required explicit reply, generate nothing.
+              Else, reply appropriately with a polite acknowledgment or relevant response.
+    - meeting: Propose one or two time slots and ask for confirmation.
+    - support_request: Acknowledge the issue, apologize if needed, and offer help or escalation.
+
+    Third, for each reply, output:
+    - id: original email ID
+    - sender: email's sender
+    - to: sender's email address. Eg. if sender is "The New York Times <nytdirect@nytimes.com>", then 'to' is nytdirect@nytimes.com
+    - subject: "Re: " + original subject
+    - body: the full reply content (no placeholders)
+  expected_output: >
+    Draft email replies, a list of replies in the form:
+    - id
+    - sender
+    - to
+    - subject
+    - body
+    - sign as "Best regards,", new line, "Christan Jin"
+  agent: email_response_writer
