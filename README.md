@@ -6,19 +6,15 @@ This system is designed to monitor Gmail inbox, classify incoming emails, determ
 ---
 
 ## Authentication
-OAuth2 is used for Gmail API authentication.
+OAuth2 is used for Gmail API authentication. Click the API platform setup to get the API autorization from OAuth2.0, and then down load the credentials.JSON file and the platform key for using the email auto responder.
 
-- **Scopes Used**: `https://www.googleapis.com/auth/gmail.readonly`
-- **Token File**: `token.json`
-- **Credentials File**: `credentials.json`
+- **API Platform Setup**: `[https://www.googleapis.com/auth/gmail.readonly](https://console.developers.google.com/?hl=zh-cn)`
+- **Token File**
+- **Credentials File**
 
 ---
 
-## Endpoints / Functions
-
-### `gmail_authenticate()`
-**Purpose**: Authenticate with Gmail and return a service object.
-- **Returns**: `Resource` — Gmail API service instance.
+## Functionality
 
 ---
 
@@ -79,7 +75,6 @@ OAuth2 is used for Gmail API authentication.
 - **Returns**: `None` (side effects only)
 
 ---
-
 ## YAML Configuration
 
 ### `agents.yaml`
@@ -92,21 +87,30 @@ Defines the roles and personas of each agent:
 
 ### `tasks.yaml`
 Three core tasks:
-1. **filter_emails** — Classifies email and flags.
+1. **filter_emails** — Classifies email based on 7 categories(spam/purchase/reservation/meeting/supportrequest/news/primary).
 2. **action_required_emails** — Checks if a reply is needed.
 3. **draft_responses** — Generates email content if needed.
 
 ---
+## Agent and Task Matching
 
+| Agent Name              | Role | task                    |
+| ----------------------- | --------| ------------------------     |
+| email\_filter\_agent    | filter emails based on 7 categories | `filter_emails`          |
+| email\_action\_agent    | determine email's type from email-filter, processing the need auto reply emails| `action_required_emails` |
+| email\_response\_writer | drafting emails passed by email-action | `draft_responses`        |
+
+
+---
 ## Example Email Object
 
 ```json
 {
-  "id": "19829b64f2e3ffec",
-  "subject": "Meeting Reminder",
-  "sender": "Team Lead <lead@company.com>",
-  "date": "Mon, 1 Jul 2025 10:00:00 -0700",
-  "snippet": "Don't forget our meeting today..."
+  {'date': 'Wed, 23 Jul 2025 19:19:35 +0000',
+  'subject': 'Summer updates incoming—Check out what’s new on Handshake!',
+  'sender': 'Handshake <handshake@g.joinhandshake.com>',
+  'id': '19838ba29f790bdd',
+  'snippet': ''}
 }
 ```
 
