@@ -8,7 +8,7 @@ from langchain_openai import ChatOpenAI
 import yaml
 import os
 
-os.environ["OPENAI_API_KEY"] = "REMOVED_SECRETproj-JueprMFyYfl0QuhT9qcQ9cFV-WDEK4amR1pO8r8wXcDzfGFGyT8JO9SGrgqA5ojyn-QUe_YaB3T3BlbkFJIZ4EHstMoppu6aYLqHdQNOlen5SyML2sZOWyEf09eRvylnNPR4UARn1y-c-_N7-1Z1b7LI9qQA"
+os.environ["OPENAI_API_KEY"] = ""
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 
