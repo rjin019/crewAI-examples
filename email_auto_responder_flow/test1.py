@@ -113,7 +113,7 @@ def process_new_emails(service, llm, agents, tasks):
     emails = [get_message(service, msg['id']) for msg in messages]
 
     # Phase 1: Email Filter
-    print("📥 Processing emails:")
+    print("Processing emails:")
     for i, email in enumerate(emails, 1):
         print(f"{i}. {email['subject']} (from: {email['sender']})")
 
@@ -125,14 +125,14 @@ def process_new_emails(service, llm, agents, tasks):
     )
     filter_result = crew_filter.kickoff(inputs={"emails": emails})
 
-    # 兼容输出：string / tuple / dict
+    # string / tuple / dict
     if isinstance(filter_result, tuple):
         filter_result = filter_result[0]
     elif isinstance(filter_result, str):
         import json
         filter_result = json.loads(filter_result)
 
-    print("\n🔍 Filter Result:")
+    print("\nFilter Result:")
     print(filter_result)
 
     # Phase 2: Email Action Analyzer
@@ -149,7 +149,7 @@ def process_new_emails(service, llm, agents, tasks):
         import json
         action_result = json.loads(action_result)
 
-    print("\n📋 Action Result:")
+    print("\nAction Result:")
     print(action_result)
 
     # Phase 3: Email Writer
@@ -166,13 +166,12 @@ def process_new_emails(service, llm, agents, tasks):
         import json
         writer_result = json.loads(writer_result)
 
-    print("\n✉️ Writer Result:")
+    print("\nWriter Result:")
     print(writer_result)
 
     # Phase 4: Send Replies
     for reply in writer_result:
         try:
-            # 处理格式
             if isinstance(reply, tuple):
                 reply = reply[0]
             elif isinstance(reply, str):
@@ -185,9 +184,9 @@ def process_new_emails(service, llm, agents, tasks):
                 subject=reply["subject"],
                 body_text=reply["body"]
             )
-            print(f"✅ Sent reply to: {reply['to']}")
+            print(f"Sent reply to: {reply['to']}")
         except Exception as e:
-            print(f"❌ Failed to send reply to {reply.get('to', 'UNKNOWN')}: {e}")
+            print(f"Failed to send reply to {reply.get('to', 'UNKNOWN')}: {e}")
 
 if __name__ == "__main__":
     start_monitoring(interval_hours=24)
