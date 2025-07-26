@@ -14,7 +14,7 @@ OAuth2 is used for Gmail API authentication. Click the API platform setup to get
 
 ---
 
-## Functionality
+## Functionality （**Functions as Endpoints**）
 
 ---
 
@@ -69,7 +69,7 @@ OAuth2 is used for Gmail API authentication. Click the API platform setup to get
 **Purpose**: Core logic to handle email classification and auto-reply.
 - **Steps**:
   1. Fetch latest emails
-  2. Run CrewAI classification and filtering agents
+  2. Run CrewAI classification and filtering agents sequentially
   3. If needed, run writer agent
   4. Send replies via Gmail
 - **Returns**: `None` (side effects only)
@@ -144,8 +144,18 @@ Three core tasks:
 
 ---
 
+## Example Full Output
+<img width="1103" height="1803" alt="Clip_2025-07-25_19-59-06" src="https://github.com/user-attachments/assets/0151a9e9-3cd0-4905-9667-1756fc49ed12" />  
+<img width="926" height="2045" alt="Clip_2025-07-25_19-59-55" src="https://github.com/user-attachments/assets/661a3989-cd6b-4be0-8876-7a467bffc986" />  
+
+<img width="1107" height="1410" alt="Clip_2025-07-25_20-00-36" src="https://github.com/user-attachments/assets/6dd25940-196f-4070-b80a-70d9dcb26e0e" />  
+
+---
+
 ## License
-This system is part of a student research/automation demo project. Use responsibly with rate limits and privacy in mind.
+This system is part of a student research/automation demo project. Use responsibly with rate limits and privacy in mind.  
+Since this is a student project, I didn't add up the "send authorization" from Gmail yet(but I will test it until it's stable and then add it up) because it will cause the uncontrolled behavior in my mailbox.  
+
 
 ---
 
