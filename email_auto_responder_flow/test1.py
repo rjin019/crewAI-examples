@@ -76,37 +76,6 @@ def load_agents_and_tasks(agent_yaml_path, task_yaml_path, llm):
     
     return agents, tasks
 
-def process_new_emails(service, llm, agents, tasks):
-    messages = list_messages(service, max_results=10)
-    
-    emails = []
-    for msg in messages:
-        email = get_message(service, msg['id'])
-        email['snippet'] = ''  # Optional: Fetch full content if needed
-        emails.append(email)
-    
-    print("New Emails to Process:")
-    for i, email in enumerate(emails, 1):
-        print(f"{i}. {email['subject']} (from: {email['sender']})")
-    
-    # Kick off CrewAI processing
-    inputs = {"emails": emails}
-    crew = Crew(
-        agents=list(agents.values()),
-        tasks=tasks,
-        process=Process.sequential,
-        verbose=True,
-    )
-    
-    try:
-        result = crew.kickoff(inputs=inputs)
-        print("\n=== Processing Result ===")
-        print(result)
-        return result
-    except Exception as e:
-        print(f"Error processing emails: {e}")
-        return None
-
 from email.mime.text import MIMEText
 import base64
 
@@ -139,67 +108,86 @@ def start_monitoring(interval_hours=24):
         print(f"⏳ Next check in {interval_hours} hours...")
         time.sleep(interval_hours * 3600)  # Convert hours to seconds
 
-import re
-
-def extract_email(sender_str):
-    match = re.search(r'<(.*?)>', sender_str)
-    if match:
-        return match.group(1)
-    return sender_str.strip()  # fallback
-
-def main():
-    service = gmail_authenticate()
+def process_new_emails(service, llm, agents, tasks):
     messages = list_messages(service, max_results=10)
-    llm = ChatOpenAI(model="gpt-3.5-turbo")
+    emails = [get_message(service, msg['id']) for msg in messages]
 
-    agents, tasks = load_agents_and_tasks(agent_yaml_path, task_yaml_path, llm)
+    # Phase 1: Email Filter
+    print("📥 Processing emails:")
+    for i, email in enumerate(emails, 1):
+        print(f"{i}. {email['subject']} (from: {email['sender']})")
 
-    crew = Crew(
-        agents=list(agents.values()),
-        tasks=tasks,
+    crew_filter = Crew(
+        agents=[agents["email_filter_agent"]],
+        tasks=[tasks[0]],
         process=Process.sequential,
         verbose=True,
     )
-    
-    emails = []
-    messages = list_messages(service, max_results=10)
-    for msg in messages:
-        full_msg = get_message(service, msg["id"])
-        headers = full_msg["payload"]["headers"]
-        sender = extract_email(email["sender"])
-        subject = next((h["value"] for h in headers if h["name"] == "Subject"), "")
-        snippet = full_msg.get("snippet", "")
-        email_summary = {
-            "id": msg['id'],
-            "sender": sender,
-            "subject": subject,
-            "snippet": snippet
-        }
-        emails.append(email_summary)
+    filter_result = crew_filter.kickoff(inputs={"emails": emails})
 
-    
-    print("Email Info:")
-    for i, email in enumerate(emails, 1):
-        print(f"{i}. {email['subject']} (from: {email['sender']}")
-    
-    inputs = {"emails": emails}
-    
-    try:
-        result = crew.kickoff(inputs=inputs)
-        print("\n=== result ===")
-        print(result)
+    # 兼容输出：string / tuple / dict
+    if isinstance(filter_result, tuple):
+        filter_result = filter_result[0]
+    elif isinstance(filter_result, str):
+        import json
+        filter_result = json.loads(filter_result)
 
-        for i, email in enumerate(emails):
-            reply_text = result[i]['draft']
-            to_sender = extract_email(email["sender"])
-            subject = "Re: " + email['subject']
-            send_message(service, to=to_sender, subject=subject, body_text=reply_text)
+    print("\n🔍 Filter Result:")
+    print(filter_result)
 
+    # Phase 2: Email Action Analyzer
+    crew_action = Crew(
+        agents=[agents["email_action_agent"]],
+        tasks=[tasks[1]],
+        process=Process.sequential,
+        verbose=True,
+    )
+    action_result = crew_action.kickoff(inputs={"emails": filter_result})
+    if isinstance(action_result, tuple):
+        action_result = action_result[0]
+    elif isinstance(action_result, str):
+        import json
+        action_result = json.loads(action_result)
 
-    except Exception as e:
-        print(f"fault: {e}")
-        print("check errors")
+    print("\n📋 Action Result:")
+    print(action_result)
 
-if __name__ == '__main__':
-    #main()
+    # Phase 3: Email Writer
+    crew_writer = Crew(
+        agents=[agents["email_response_writer"]],
+        tasks=[tasks[2]],
+        process=Process.sequential,
+        verbose=True,
+    )
+    writer_result = crew_writer.kickoff(inputs={"emails": action_result})
+    if isinstance(writer_result, tuple):
+        writer_result = writer_result[0]
+    elif isinstance(writer_result, str):
+        import json
+        writer_result = json.loads(writer_result)
+
+    print("\n✉️ Writer Result:")
+    print(writer_result)
+
+    # Phase 4: Send Replies
+    for reply in writer_result:
+        try:
+            # 处理格式
+            if isinstance(reply, tuple):
+                reply = reply[0]
+            elif isinstance(reply, str):
+                import json
+                reply = json.loads(reply)
+
+            send_message(
+                service,
+                to=reply["to"],
+                subject=reply["subject"],
+                body_text=reply["body"]
+            )
+            print(f"✅ Sent reply to: {reply['to']}")
+        except Exception as e:
+            print(f"❌ Failed to send reply to {reply.get('to', 'UNKNOWN')}: {e}")
+
+if __name__ == "__main__":
     start_monitoring(interval_hours=24)

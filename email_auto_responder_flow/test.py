@@ -1,191 +1,249 @@
+#!/usr/bin/env python3
+"""
+ Testing, Integration Testing
+"""
+
+import unittest
+from unittest.mock import Mock, patch, MagicMock
+import sys
 import os
-import time
-import schedule
-import json
-from datetime import datetime
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
-from googleapiclient.discovery import build
-from crewai import Agent, Crew, Task, Process
-from langchain_openai import ChatOpenAI
-import yaml
-import logging
 
-# 设置日志
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
-os.environ["OPENAI_API_KEY"] = "REMOVED_SECRETproj-JueprMFyYfl0QuhT9qcQ9cFV-WDEK4amR1pO8r8wXcDzfGFGyT8JO9SGrgqA5ojyn-QUe_YaB3T3BlbkFJIZ4EHstMoppu6aYLqHdQNOlen5SyML2sZOWyEf09eRvylnNPR4UARn1y-c-_N7-1Z1b7LI9qQA"
-
-SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
-PROCESSED_EMAILS_FILE = 'processed_emails.json'
-
-class EmailMonitor:
+# testing
+class EmailProcessor:
     def __init__(self):
         self.service = None
-        self.crew = None
-        self.processed_emails = self.load_processed_emails()
         
-    def load_processed_emails(self):
-        """加载已处理的邮件ID"""
-        if os.path.exists(PROCESSED_EMAILS_FILE):
-            with open(PROCESSED_EMAILS_FILE, 'r') as f:
-                return set(json.load(f))
-        return set()
+    def classify_email(self, email):
+        subject = email.get('subject', '').lower()
+        sender = email.get('sender', '').lower()
+        
+        # category
+        if any(spam_word in subject for spam_word in ['giveaway', 'limited time', 'deal', 'offer']):
+            return 'spam'
+        elif 'reservation' in subject:
+            return 'reservations'
+        elif 'meeting' in subject or 'invite' in subject:
+            return 'meeting'
+        elif 'support' in subject or 'help' in subject:
+            return 'support_request'
+        elif any(domain in sender for domain in ['.edu', '.gov']):
+            return 'primary'
+        else:
+            return 'news'
     
-    def save_processed_emails(self):
-        """保存已处理的邮件ID"""
-        with open(PROCESSED_EMAILS_FILE, 'w') as f:
-            json.dump(list(self.processed_emails), f)
+    def needs_reply(self, category):
+        """判断是否需要回复"""
+        reply_categories = ['primary', 'meeting', 'support_request']
+        return category in reply_categories
     
-    def gmail_authenticate(self):
-        """Gmail认证"""
-        creds = None
-        if os.path.exists('token.json'):
-            creds = Credentials.from_authorized_user_file('token.json', SCOPES)
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                flow = InstalledAppFlow.from_client_secrets_file('email_auto_responder_flow/credentials.json', SCOPES)
-                creds = flow.run_local_server(port=0)
-            with open('token.json', 'w') as token:
-                token.write(creds.to_json())
-        return build('gmail', 'v1', credentials=creds)
-    
-    def get_new_messages(self, max_results=10):
-        """获取新邮件（未处理的）"""
-        if not self.service:
-            self.service = self.gmail_authenticate()
-            
-        results = self.service.users().messages().list(userId='me', maxResults=max_results).execute()
-        messages = results.get('messages', [])
-        
-        # 过滤出未处理的邮件
-        new_messages = [msg for msg in messages if msg['id'] not in self.processed_emails]
-        return new_messages
-    
-    def get_message_details(self, msg_id):
-        """获取邮件详情"""
-        msg = self.service.users().messages().get(
-            userId='me', 
-            id=msg_id, 
-            format='metadata', 
-            metadataHeaders=['From', 'Subject', 'Date']
-        ).execute()
-        
-        headers = msg.get('payload', {}).get('headers', [])
-        email_data = {}
-        for header in headers:
-            if header['name'] == 'From':
-                email_data['sender'] = header['value']
-            elif header['name'] == 'Subject':
-                email_data['subject'] = header['value']
-            elif header['name'] == 'Date':
-                email_data['date'] = header['value']
-        email_data['id'] = msg_id
-        email_data['snippet'] = ''
-        return email_data
-    
-    def initialize_crew(self):
-        """初始化CrewAI"""
-        agent_yaml_path = "email_auto_responder_flow/src/email_auto_responder_flow/crews/email_filter_crew/config/agents.yaml"
-        task_yaml_path = "email_auto_responder_flow/src/email_auto_responder_flow/crews/email_filter_crew/config/tasks.yaml"
-        
-        with open(agent_yaml_path, "r") as f:
-            agent_conf = yaml.safe_load(f)
-        with open(task_yaml_path, "r") as f:
-            task_conf = yaml.safe_load(f)
-        
-        llm = ChatOpenAI(model="gpt-3.5-turbo")
-        
-        agents = {}
-        for name, conf in agent_conf.items():
-            agents[name] = Agent(
-                role=conf["role"],
-                goal=conf["goal"],
-                backstory=conf["backstory"],
-                llm=llm,
-                tools=[],
-                verbose=True
-            )
-        
-        tasks = []
-        for name, conf in task_conf.items():
-            agent_name = conf["agent"]
-            tasks.append(Task(
-                description=conf["description"],
-                expected_output=conf["expected_output"],
-                agent=agents[agent_name]
-            ))
-        
-        self.crew = Crew(
-            agents=list(agents.values()),
-            tasks=tasks,
-            process=Process.sequential,
-            verbose=True,
-        )
-    
-    def process_new_emails(self):
-        """处理新邮件"""
-        try:
-            logger.info("正在检查新邮件...")
-            new_messages = self.get_new_messages()
-            
-            if not new_messages:
-                logger.info("没有新邮件")
-                return
-            
-            logger.info(f"发现 {len(new_messages)} 封新邮件")
-            
-            # 获取邮件详情
-            emails = []
-            for msg in new_messages:
-                email_data = self.get_message_details(msg['id'])
-                emails.append(email_data)
-                logger.info(f"新邮件: {email_data['subject']} (from: {email_data['sender']})")
-            
-            # 如果crew未初始化，先初始化
-            if not self.crew:
-                self.initialize_crew()
-            
-            # 处理邮件
-            inputs = {"emails": emails}
-            result = self.crew.kickoff(inputs=inputs)
-            
-            # 记录处理结果
-            logger.info("邮件处理完成")
-            logger.info(f"处理结果: {result}")
-            
-            # 将处理过的邮件ID添加到已处理列表
-            for msg in new_messages:
-                self.processed_emails.add(msg['id'])
-            
-            # 保存已处理的邮件ID
-            self.save_processed_emails()
-            
-        except Exception as e:
-            logger.error(f"处理邮件时出错: {e}")
-    
-    def start_monitoring(self, interval_minutes=5):
-        """开始监控邮件"""
-        logger.info(f"开始邮件监控，检查间隔: {interval_minutes} 分钟")
-        
-        # 设置定时任务
-        schedule.every(interval_minutes).minutes.do(self.process_new_emails)
-        
-        # 立即执行一次
-        self.process_new_emails()
-        
-        # 持续运行
-        while True:
-            schedule.run_pending()
-            time.sleep(1)
+    def generate_reply(self, email, category):
+        """autoreply"""
+        if category == 'meeting':
+            return "Thank you for the meeting invitation. I'll check my schedule and get back to you."
+        elif category == 'support_request':
+            return "Thank you for contacting us. We've received your request and will respond within 24 hours."
+        elif category == 'primary':
+            return "Thank you for your email. I'll review it and respond accordingly."
+        else:
+            return ""
 
-# 使用示例
-if __name__ == '__main__':
-    monitor = EmailMonitor()
+# ===== UNIT TESTING =====
+class TestEmailProcessor(unittest.TestCase):
+    """Unit Testing"""
     
-    # 开始监控，每5分钟检查一次
-    monitor.start_monitoring(interval_minutes=5)
+    def setUp(self):
+        """prepare testing"""
+        self.processor = EmailProcessor()
+    
+    def test_classify_spam_email(self):
+        """test spam"""
+        email = {'subject': 'Limited time offer!', 'sender': 'spam@example.com'}
+        result = self.processor.classify_email(email)
+        self.assertEqual(result, 'spam')
+    
+    def test_classify_meeting_email(self):
+        """test meeting"""
+        email = {'subject': 'Meeting invitation for tomorrow', 'sender': 'colleague@company.com'}
+        result = self.processor.classify_email(email)
+        self.assertEqual(result, 'meeting')
+    
+    def test_classify_reservation_email(self):
+        """test reservation"""
+        email = {'subject': 'Hotel reservation confirmation', 'sender': 'hotel@booking.com'}
+        result = self.processor.classify_email(email)
+        self.assertEqual(result, 'reservations')
+    
+    def test_needs_reply_logic(self):
+        """test draft"""
+        self.assertTrue(self.processor.needs_reply('meeting'))
+        self.assertTrue(self.processor.needs_reply('support_request'))
+        self.assertFalse(self.processor.needs_reply('spam'))
+        self.assertFalse(self.processor.needs_reply('news'))
+    
+    def test_generate_reply_content(self):
+        """test support"""
+        email = {'subject': 'Need help', 'sender': 'user@example.com'}
+        reply = self.processor.generate_reply(email, 'support_request')
+        self.assertIn('Thank you for contacting us', reply)
+        self.assertIn('24 hours', reply)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ===== INTEGRATION TESTING (集成测试) =====
+class TestEmailWorkflow(unittest.TestCase):
+    """Integration Testing - 测试模块间交互"""
+    
+    def setUp(self):
+        self.processor = EmailProcessor()
+    
+    def test_complete_email_processing_workflow(self):
+        """测试完整的邮件处理流程"""
+        # 输入邮件
+        email = {
+            'subject': 'Meeting request for project discussion',
+            'sender': 'manager@company.com',
+            'id': '12345'
+        }
+        
+        # 步骤1: 分类
+        category = self.processor.classify_email(email)
+        self.assertEqual(category, 'meeting')
+        
+        # 步骤2: 判断是否需要回复
+        should_reply = self.processor.needs_reply(category)
+        self.assertTrue(should_reply)
+        
+        # 步骤3: 生成回复
+        if should_reply:
+            reply = self.processor.generate_reply(email, category)
+            self.assertIsNotNone(reply)
+            self.assertTrue(len(reply) > 0)
+    
+    def test_spam_email_workflow(self):
+        """测试垃圾邮件完整流程"""
+        email = {
+            'subject': 'Win big prizes - limited time!',
+            'sender': 'promo@spam.com',
+            'id': '54321'
+        }
+        
+        category = self.processor.classify_email(email)
+        should_reply = self.processor.needs_reply(category)
+        
+        # 垃圾邮件不应该回复
+        self.assertEqual(category, 'spam')
+        self.assertFalse(should_reply)
+
+# # ===== BLACK-BOX TESTING (黑盒测试) =====
+# class TestBlackBoxEmailProcessing(unittest.TestCase):
+#     """Black-box Testing - 基于输入输出的测试，不考虑内部实现"""
+    
+#     def setUp(self):
+#         self.processor = EmailProcessor()
+    
+#     def test_various_input_combinations(self):
+#         """测试各种输入组合"""
+#         test_cases = [
+#             # (input_email, expected_category, should_reply)
+#             ({'subject': 'Giveaway alert!', 'sender': 'ads@promo.com'}, 'spam', False),
+#             ({'subject': 'Hotel reservation #123', 'sender': 'hotel@booking.com'}, 'reservations', False),
+#             ({'subject': 'Team meeting tomorrow', 'sender': 'boss@company.com'}, 'meeting', True),
+#             ({'subject': 'Help with login issue', 'sender': 'user@client.com'}, 'support_request', True),
+#             ({'subject': 'Research update', 'sender': 'prof@university.edu'}, 'primary', True),
+#         ]
+        
+#         for email, expected_category, expected_reply in test_cases:
+#             with self.subTest(email=email['subject']):
+#                 category = self.processor.classify_email(email)
+#                 needs_reply = self.processor.needs_reply(category)
+                
+#                 self.assertEqual(category, expected_category)
+#                 self.assertEqual(needs_reply, expected_reply)
+
+# # ===== COVERAGE-BASED TESTING (覆盖率测试) =====
+# class TestBranchCoverage(unittest.TestCase):
+#     """Branch Coverage Testing - 确保每个分支都被测试到"""
+    
+#     def setUp(self):
+#         self.processor = EmailProcessor()
+    
+#     def test_all_classification_branches(self):
+#         """测试所有分类分支"""
+#         # 确保每个if-elif分支都被执行
+#         test_emails = [
+#             ({'subject': 'limited time offer', 'sender': 'spam@test.com'}, 'spam'),
+#             ({'subject': 'reservation confirmation', 'sender': 'hotel@test.com'}, 'reservations'),
+#             ({'subject': 'meeting invite', 'sender': 'colleague@test.com'}, 'meeting'),
+#             ({'subject': 'support needed', 'sender': 'user@test.com'}, 'support_request'),
+#             ({'subject': 'academic paper', 'sender': 'researcher@university.edu'}, 'primary'),
+#             ({'subject': 'newsletter', 'sender': 'news@website.com'}, 'news'),  # 默认分支
+#         ]
+        
+#         for email, expected in test_emails:
+#             result = self.processor.classify_email(email)
+#             self.assertEqual(result, expected, f"Failed for email: {email}")
+
+# ===== 简单的测试运行器 =====
+def run_simple_tests():
+    """简单的测试执行函数"""
+    print("🧪 开始运行邮件处理系统测试...")
+    print("=" * 50)
+    
+    # 创建测试套件
+    test_suite = unittest.TestSuite()
+    
+    # 添加单元测试
+    test_suite.addTest(unittest.makeSuite(TestEmailProcessor))
+    print("✅ 单元测试已添加")
+    
+    # 添加集成测试  
+    test_suite.addTest(unittest.makeSuite(TestEmailWorkflow))
+    print("✅ 集成测试已添加")
+    
+    # 添加黑盒测试
+    test_suite.addTest(unittest.makeSuite(TestBlackBoxEmailProcessing))
+    print("✅ 黑盒测试已添加")
+    
+    # 添加覆盖率测试
+    test_suite.addTest(unittest.makeSuite(TestBranchCoverage))
+    print("✅ 分支覆盖率测试已添加")
+    
+    # 运行测试
+    runner = unittest.TextTestRunner(verbosity=2)
+    result = runner.run(test_suite)
+    
+    # 输出结果摘要
+    print("\n" + "=" * 50)
+    print(f"🎯 测试结果摘要:")
+    print(f"   总共运行: {result.testsRun} 个测试")
+    print(f"   失败: {len(result.failures)} 个")
+    print(f"   错误: {len(result.errors)} 个")
+    print(f"   成功率: {((result.testsRun - len(result.failures) - len(result.errors))/result.testsRun*100):.1f}%")
+    
+    return result.wasSuccessful()
+
+# ===== 主函数 =====
+if __name__ == '__main__':
+    # 运行所有测试
+    success = run_simple_tests()
+    
+    if success:
+        print("\n🎉 所有测试通过！系统可以部署。")
+        sys.exit(0)
+    else:
+        print("\n❌ 有测试失败，请检查代码。")
+        sys.exit(1)

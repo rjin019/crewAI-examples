@@ -16,7 +16,7 @@ filter_emails:
 
     - reservations: emails related to confirmed bookings such as hotels, flights, events, etc. Has the "Reservation" as part of the subject.
 
-    - meeting: meeting invitations or confirmations
+    - meeting: meeting invitations or confirmations, anything with keyword "meeting", "scheduling" or "time to meet".
 
     - support_request: emails requesting help or assistance
 
@@ -48,30 +48,54 @@ filter_emails:
 
 action_required_emails:
   description: >
-    For each filtered email, determine what type of response or action is required based on "Needs Auto Reply: false" ftom filter_emails.
-    Needs Auto Reply: false, no action needed.
-    Needs Auto Reply: true, reply needed.
+    You are given a list of emails as input in the `emails` variable. Here is the list input: {emails}
+    Each object has the following fields:
+      - id (string)
+      - subject (string)
+      - sender (string)
+      - category (string)
+      - show_to_user (boolean)
+      - needs_auto_reply (boolean)
 
-    Each input email includes:
-    - id
-    - subject
-    - sender
-    - Needs Auto Reply
+    Your job:
+      1. ONLY process emails where "needs_auto_reply" is true.
+      2. For each, classify the action_type based on the subject and sender:
+          - "meeting" → subject contains words like "meeting", "schedule", "calendar", "appointment"
+          - "support_request" → subject indicates a problem, issue, request, or help
+          - "primary" → anything else that reasonably needs a polite reply
+
+    RULES YOU MUST FOLLOW (NO EXCEPTIONS):
+      - DO NOT create or fabricate any email IDs, subjects, senders, or other data.
+      - DO NOT write hypothetical, example, or invented content.
+      - DO NOT add any emails that do not appear in the input.
+      - COPY fields exactly as they appear in the input JSON.
+      - DO NOT output email body — only classify.
+
   expected_output: >
-    A list of emails with their corresponding required actions.
+    A JSON list of dicts. Each dict must include:
+      - "id" (copied from input)
+      - "subject" (copied from input)
+      - "sender" (copied from input)
+      - "action_type" ("meeting", "support_request", or "primary")
+      - "reason" (short phrase explaining why the category was chosen)
+
   agent: email_action_agent
+
+
+
 
 draft_responses:
   description: >
-    No action needed emails, skip and ignore those.
-    Generate a response if the subject is empty or if the action is "reply needed".
-
-    Each input email includes:
+    You are given a list of emails as input in the `emails` variable. Here is the list input: {emails}, each email includes:
     - id
     - subject
-    - to: sender's email address. Eg. if sender is "The New York Times <nytdirect@nytimes.com>", then 'to' is nytdirect@nytimes.com
-    - sender: Eg. if sender is "The New York Times <nytdirect@nytimes.com>", then 'sender' is The New York Times
+    - sender
+    - action_type ("meeting", "support_request", "primary")
+    - reason
 
+    Based on the action_type, generate a polite and concise email reply.
+
+    Rules:
     First, categorize what type of responses is needed.
     1. primary: General inquiry or information-sharing emails that don't fit other categories.
     2. meeting:Scheduling or time availability requests.
@@ -88,13 +112,14 @@ draft_responses:
     - sender: email's sender
     - to: sender's email address. Eg. if sender is "The New York Times <nytdirect@nytimes.com>", then 'to' is nytdirect@nytimes.com
     - subject: "Re: " + original subject
-    - body: the full reply content (no placeholders)
+    - body: the full reply content you generated(no placeholders)
+    
   expected_output: >
     Draft email replies, a list of replies in the form:
     - id
     - sender
-    - to
     - subject
+    - action_type
     - body
     - sign as "Best regards,", new line, "Christan Jin"
   agent: email_response_writer
